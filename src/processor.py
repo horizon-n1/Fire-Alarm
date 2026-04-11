@@ -189,8 +189,10 @@ def build_node_features(grid_df: pd.DataFrame) -> torch.Tensor:
     feature_cols["elevation_norm"]  = minmax(grid_df.get("elevation",  pd.Series(0.0, index=grid_df.index)))
     feature_cols["slope_norm"]      = minmax(grid_df.get("slope",      pd.Series(0.0, index=grid_df.index)))
 
-    # Every node in grid_df IS an active fire detection → label = 1
-    feature_cols["is_on_fire"] = pd.Series(1.0, index=grid_df.index)
+    # adds both negative and postive nodes
+    feature_cols["is_on_fire"] = (
+        grid_df.get("bright_ti4", pd.Series(0.0, index=grid_df.index)) > 0
+    ).astype(float)
 
     X = torch.tensor(
         pd.DataFrame(feature_cols).values,
@@ -287,6 +289,7 @@ def build_graph(
     df                       = load_firms_csv(firms_csv)
     grid_df, _, _            = build_grid(df, cell_size_deg=cell_size)
     grid_df                  = attach_elevation(grid_df, dem_path)
+    grid_df                  = add_negative_nodes(grid_df, ratio=2.0)
     x                        = build_node_features(grid_df)
     edge_index, edge_attr    = build_edges(grid_df, wind_u=wind_u, wind_v=wind_v, radius=radius)
 
@@ -314,6 +317,47 @@ def build_graph(
     logger.info("═══ Processor pipeline complete ═══")
 
     return graph
+
+# AFTER TRAINING, the model was predicting 100% cause there are no non-burning nodes
+def add_negative_nodes(grid_df: pd.DataFrame, ratio: float = 2.0) -> pd.DataFrame:
+    """
+    Adds synthetic non-fire nodes surrounding active fire cells.
+    ratio=2.0 means 2 negative nodes per positive node.
+    """
+    import random
+
+    fire_rows = grid_df["row_idx"].values
+    fire_cols = grid_df["col_idx"].values
+    existing  = set(zip(fire_rows.tolist(), fire_cols.tolist()))
+
+    n_negative = int(len(grid_df) * ratio)
+    negatives  = []
+
+    row_min, row_max = fire_rows.min(), fire_rows.max()
+    col_min, col_max = fire_cols.min(), fire_cols.max()
+
+    # Sample random non-fire cells within the bounding box
+    attempts = 0
+    while len(negatives) < n_negative and attempts < n_negative * 10:
+        r = random.randint(row_min, row_max)
+        c = random.randint(col_min, col_max)
+        if (r, c) not in existing:
+            negatives.append({
+                "row_idx":    r,
+                "col_idx":    c,
+                "latitude":   grid_df["latitude"].mean(),   # approximate
+                "longitude":  grid_df["longitude"].mean(),
+                "bright_ti4": 0.0,
+                "frp":        0.0,
+                "elevation":  0.0,
+                "slope":      0.0,
+            })
+            existing.add((r, c))
+        attempts += 1
+
+    neg_df = pd.DataFrame(negatives)
+    combined = pd.concat([grid_df, neg_df], ignore_index=True)
+    return combined
 
 
 # ════════════════════════════════════════════════════════════════════════════

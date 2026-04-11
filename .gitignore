@@ -1,7 +1,38 @@
-# .gitignore
+# ── Environment ──────────────────────────────────────────────────────────────
+.env
+*.env
+
+# ── Python cache ─────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
-.env
+*.pyd
+.Python
+
+# ── Data — never commit raw or processed data to Git ─────────────────────────
 data/raw/
 data/processed/
+data/models/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS garbage ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Jupyter (if you explore data in notebooks) ────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
