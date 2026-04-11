@@ -10,9 +10,13 @@ __pycache__/
 .Python
 
 # ── Data — never commit raw or processed data to Git ─────────────────────────
-data/raw/
-data/processed/
-data/models/
+data/raw/*
+data/processed/*
+data/models/*
+
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/models/.gitkeep
 
 # ── Virtual environments ──────────────────────────────────────────────────────
 venv/
