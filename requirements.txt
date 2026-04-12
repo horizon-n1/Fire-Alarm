@@ -1,26 +1,23 @@
 # ==========================================
-# Pyro-Flow: Physics-Informed Wildfire GNN
-# Environment Requirements
+# PyroFlow: Physics-Informed Wildfire GNN
 # ==========================================
 
-# --- Core Machine Learning & Physics ---
-# Note: Install PyTorch separately first if using XPU (Intel) or specific CUDA versions.
+# --- Core ML ---
 torch>=2.1.0
 torch_geometric>=2.4.0
-deepxde>=1.10.0      # Physics-Informed Neural Network framework
-networkx>=3.1        # Graph data structure manipulation
+networkx>=3.1
 
-# --- Geospatial Data Processing ---
-rasterio>=1.3.9      # Reading elevation/topography TIFF files
-geopandas>=0.14.0    # Spatial data manipulation
-shapely>=2.0.2       # Geometric operations for map nodes
+# --- Data Ingestion ---
+requests>=2.31.0
+pandas>=2.1.1
+numpy>=1.26.0
+python-dotenv>=1.0.0
 
-# --- Data Ingestion & Utilities ---
-requests>=2.31.0     # Hitting the NASA FIRMS API
-pandas>=2.1.1        # Tabular data management
-numpy>=1.26.0        # Numerical operations
-python-dotenv>=1.0.0 # Secure API key management (.env files)
+# --- Geospatial (optional — only needed for DEM/GeoTIFF elevation) ---
+rasterio>=1.3.9
 
-# --- Command Center Dashboard ---
-streamlit>=1.32.0    # Real-time UI and interactive sliders
-pydeck>=0.8.0        # High-performance 3D map rendering (Streamlit integration)
+# --- Dashboard ---
+streamlit>=1.32.0
+folium>=0.15.0
+streamlit-folium>=0.18.0
+plotly>=5.18.0
