@@ -160,29 +160,22 @@ def build_map(df: pd.DataFrame, threshold: float = 0.5) -> folium.Map:
 
 def build_heatmap(df: pd.DataFrame) -> folium.Map:
     m = folium.Map(
-        location   = [df["lat"].mean(), df["lon"].mean()],
-        zoom_start = 7,
-        tiles      = "CartoDB dark_matter",
+        location   = [float(df["lat"].mean()), float(df["lon"].mean())],
+        zoom_start = 6,
+        tiles      = "OpenStreetMap",   # ← switch from CartoDB
     )
 
     heat_data = [
-        [row["lat"], row["lon"], row["fire_prob"]]
+        [float(row["lat"]), float(row["lon"]), float(row["fire_prob"])]
         for _, row in df.iterrows()
-        if row["fire_prob"] > 0.05
     ]
 
     HeatMap(
-        heat_data,
-        min_opacity = 0.3,
-        max_zoom    = 13,
-        radius      = 35,
-        blur        = 25,
-        gradient    = {
-            "0.2":  "yellow",
-            "0.5":  "orange",
-            "0.75": "red",
-            "1.0":  "darkred",
-        }
+        data        = heat_data,
+        min_opacity = 0.5,
+        radius      = 25,
+        blur        = 15,
+        max_val     = 1.0,
     ).add_to(m)
 
     return m
@@ -251,6 +244,7 @@ def main():
 
         with tab2:
             st.caption("Heatmap intensity = GNN fire probability confidence")
+            
             st_folium(build_heatmap(results), width=700, height=480)
 
     with chart_col:
