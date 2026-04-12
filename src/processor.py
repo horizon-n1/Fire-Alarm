@@ -320,12 +320,7 @@ def build_graph(
 
 # AFTER TRAINING, the model was predicting 100% cause there are no non-burning nodes
 def add_negative_nodes(grid_df: pd.DataFrame, ratio: float = 2.0) -> pd.DataFrame:
-    """
-    Adds synthetic non-fire nodes surrounding active fire cells.
-    ratio=2.0 means 2 negative nodes per positive node.
-    """
     import random
-
     fire_rows = grid_df["row_idx"].values
     fire_cols = grid_df["col_idx"].values
     existing  = set(zip(fire_rows.tolist(), fire_cols.tolist()))
@@ -336,17 +331,25 @@ def add_negative_nodes(grid_df: pd.DataFrame, ratio: float = 2.0) -> pd.DataFram
     row_min, row_max = fire_rows.min(), fire_rows.max()
     col_min, col_max = fire_cols.min(), fire_cols.max()
 
-    # Sample random non-fire cells within the bounding box
+    # Get actual lat/lon ranges from fire nodes
+    lat_min, lat_max = grid_df["latitude"].min(),  grid_df["latitude"].max()
+    lon_min, lon_max = grid_df["longitude"].min(), grid_df["longitude"].max()
+    lat_range = lat_max - lat_min
+    lon_range = lon_max - lon_min
+
     attempts = 0
     while len(negatives) < n_negative and attempts < n_negative * 10:
         r = random.randint(row_min, row_max)
         c = random.randint(col_min, col_max)
         if (r, c) not in existing:
+            # Interpolate realistic lat/lon from grid position
+            lat = lat_min + (r - row_min) / max(row_max - row_min, 1) * lat_range
+            lon = lon_min + (c - col_min) / max(col_max - col_min, 1) * lon_range
             negatives.append({
                 "row_idx":    r,
                 "col_idx":    c,
-                "latitude":   grid_df["latitude"].mean(),   # approximate
-                "longitude":  grid_df["longitude"].mean(),
+                "latitude":   lat,
+                "longitude":  lon,
                 "bright_ti4": 0.0,
                 "frp":        0.0,
                 "elevation":  0.0,
@@ -355,11 +358,9 @@ def add_negative_nodes(grid_df: pd.DataFrame, ratio: float = 2.0) -> pd.DataFram
             existing.add((r, c))
         attempts += 1
 
-    neg_df = pd.DataFrame(negatives)
+    neg_df   = pd.DataFrame(negatives)
     combined = pd.concat([grid_df, neg_df], ignore_index=True)
     return combined
-
-
 # ════════════════════════════════════════════════════════════════════════════
 # CLI entry point
 # ════════════════════════════════════════════════════════════════════════════

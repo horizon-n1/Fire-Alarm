@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+
 import streamlit as st
 import torch
 import json
@@ -5,21 +12,11 @@ import numpy as np
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-from pathlib import Path
-import sys
+import time
+import plotly.graph_objects as go
 
-# --- Path resolution ---
-# Ensures the application can find the source directory regardless of execution point
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT / "src"))
-
-try:
-    from src.model import PyroFlowGNN
-    from src import physics
-except ImportError:
-    # Fallback for different directory structures
-    from model import PyroFlowGNN
-    import physics
+from src.model import PyroFlowGNN
+from src import physics
 
 # --- Global Paths ---
 MODELS_DIR    = ROOT / "data" / "models"
@@ -200,7 +197,146 @@ def build_map(df: pd.DataFrame, threshold: float = 0.5) -> folium.Map:
 
     return m
 
+# ════════════════════════════════════════════════════════════════════════════
+# Fire Spread Animation
+# ════════════════════════════════════════════════════════════════════════════
 
+def simulate_spread_steps(results, edge_index, edge_attr, n_steps=8):
+    import numpy as np
+    frames     = []
+    probs      = results["fire_prob"].values.copy()
+    lats       = results["lat"].values
+    lons       = results["lon"].values
+    BOOST      = 0.20
+    THRESH     = 0.3
+    RADIUS_KM  = 8.0    # nodes within 80 km of a fire node can ignite
+
+    def haversine_matrix(lats, lons):
+        """Returns NxN distance matrix in km."""
+        R    = 6371.0
+        lat  = np.radians(lats)
+        lon  = np.radians(lons)
+        dlat = lat[:, None] - lat[None, :]
+        dlon = lon[:, None] - lon[None, :]
+        a    = np.sin(dlat/2)**2 + np.cos(lat[:,None]) * np.cos(lat[None,:]) * np.sin(dlon/2)**2
+        return R * 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+
+    dist_matrix = haversine_matrix(lats, lons)   # [N, N]
+
+    for step in range(n_steps):
+        new_probs = probs.copy()
+
+        for i in range(len(probs)):
+            if probs[i] >= THRESH:
+                # Find all nodes within RADIUS_KM
+                neighbours = np.where(dist_matrix[i] < RADIUS_KM)[0]
+                for j in neighbours:
+                    if i == j:
+                        continue
+                    # Closer nodes get stronger boost
+                    dist_factor = 1.0 - (dist_matrix[i, j] / RADIUS_KM)
+                    boost       = BOOST * probs[i] * dist_factor
+                    new_probs[j] = min(new_probs[j] + boost, 1.0)
+
+        probs = new_probs
+        frame = results.copy()
+        frame["fire_prob"] = probs
+        frame["step"]      = step + 1
+        frames.append(frame)
+
+    return frames
+
+def build_animation_map(df: pd.DataFrame, step: int, total: int) -> folium.Map:
+    """Builds a single animation frame map."""
+    center_lat = df["lat"].mean()
+    center_lon = df["lon"].mean()
+
+    m = folium.Map(
+        location   = [center_lat, center_lon],
+        zoom_start = 7,
+        tiles      = "CartoDB dark_matter",
+    )
+
+    # Step counter overlay
+    folium.Marker(
+        location = [df["lat"].max(), df["lon"].min()],
+        icon     = folium.DivIcon(html=f"""
+            <div style="
+                background: rgba(0,0,0,0.7);
+                color: #ff4b2b;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 6px 12px;
+                border-radius: 6px;
+                border: 1px solid #ff4b2b;
+                white-space: nowrap;
+            ">
+                ⏱ T+{step} hrs &nbsp;|&nbsp; Step {step}/{total}
+            </div>
+        """)
+    ).add_to(m)
+
+    for _, row in df.iterrows():
+        prob   = row["fire_prob"]
+        rate   = max(row["spread_rate"], 0.5)
+        radius = min(rate * 3, 20)
+
+        if prob > 0.75:
+            color = "#ff0000"
+        elif prob > 0.5:
+            color = "#ff4b2b"
+        elif prob > 0.3:
+            color = "#ff9900"
+        elif prob > 0.15:
+            color = "#ffdd00"
+        else:
+            color = "#0033aa"
+
+        folium.CircleMarker(
+            location     = [row["lat"], row["lon"]],
+            radius       = radius * prob,   # shrinks for low-prob nodes
+            color        = color,
+            fill         = True,
+            fill_color   = color,
+            fill_opacity = min(prob + 0.2, 0.9),
+            tooltip      = f"prob={prob:.2f} | rate={rate:.2f} m/min",
+        ).add_to(m)
+
+    return m
+
+def build_animation_map_plotly(df, step, total):
+    fig = go.Figure(go.Scattermapbox(
+        lat  = df["lat"],
+        lon  = df["lon"],
+        mode = "markers",
+        marker = dict(
+            size       = (df["fire_prob"] * 15 + 3).clip(3, 18),
+            color      = df["fire_prob"],
+            colorscale = "Reds",
+            cmin       = 0,
+            cmax       = 1,
+            colorbar   = dict(title="Fire Prob"),
+        ),
+        text = df.apply(
+            lambda r: f"prob={r['fire_prob']:.2f} | rate={r['spread_rate']:.2f} m/min",
+            axis=1
+        ),
+    ))
+
+    fig.update_layout(
+        mapbox = dict(
+            style  = "carto-darkmatter",
+            center = dict(lat=df["lat"].mean(), lon=df["lon"].mean()),
+            zoom   = 6,
+        ),
+        margin           = dict(l=0, r=0, t=40, b=0),
+        height           = 460,
+        title            = f"T+{step} hrs | Step {step}/{total}",
+        title_font_color = "#ff4b2b",
+        paper_bgcolor    = "#0e1117",
+        plot_bgcolor     = "#0e1117",
+    )
+    return fig
 # ==============================================================================
 # Main Streamlit Dashboard Layout
 # ==============================================================================
@@ -287,11 +423,74 @@ def main():
     map_col, chart_col = st.columns([3, 2])
 
     with map_col:
-        st.subheader("Fire Spread Prediction Map")
-        st.caption("Red: Active Fire | Orange: High Risk | Blue: Safe Area")
-        fire_map = build_map(results, threshold=threshold)
-        st_folium(fire_map, width=700, height=500)
+        tab1, tab2 = st.tabs(["📍 Live Prediction Map", "🎬 Spread Animation"])
 
+        with tab1:
+            st.caption("Red: Active Fire | Orange: High Risk | Blue: Safe Area")
+            fire_map = build_map(results, threshold=threshold)
+            st_folium(fire_map, width=700, height=480)
+
+        with tab2:
+            st.caption("Simulates fire propagation across the graph over time.")
+            n_steps = st.slider("Simulation Steps (hours)", 4, 16, 8, key="n_steps")
+
+            cache_key = f"frames_{n_steps}_{wind_speed}_{wind_dir}_{humidity}"
+            if "frames_cache_key" not in st.session_state or st.session_state.frames_cache_key != cache_key:
+                st.session_state.frames           = simulate_spread_steps(
+                    results    = results,
+                    edge_index = graph.edge_index,
+                    edge_attr  = graph.edge_attr,
+                    n_steps    = n_steps,
+                )
+                st.session_state.frames_cache_key = cache_key
+                st.session_state.anim_step        = 0
+                st.session_state.playing          = False
+
+            frames = st.session_state.frames
+
+            col_play, col_stop, col_step = st.columns([1, 1, 3])
+            with col_play:
+                if st.button("▶ Play", type="primary", use_container_width=True):
+                    st.session_state.playing   = True
+                    st.session_state.anim_step = 0
+            with col_stop:
+                if st.button("⏹ Stop", use_container_width=True):
+                    st.session_state.playing = False
+
+            with col_step:
+                manual_step = st.slider(
+                    "Manual Step", 1, n_steps,
+                    value = max(st.session_state.get("anim_step", 0) + 1, 1),
+                    key   = "manual_step_slider"
+                )
+
+            # Determine which frame to show
+            if st.session_state.get("playing", False):
+                current_step = st.session_state.anim_step
+            else:
+                current_step = manual_step - 1
+
+            # Render current frame
+            frame = frames[current_step]
+            fig   = build_animation_map_plotly(frame, step=current_step+1, total=n_steps)
+            st.plotly_chart(fig, use_container_width=True)
+
+            n_burning = (frame["fire_prob"] > 0.5).sum()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Burning Nodes", n_burning)
+            c2.metric("Coverage",      f"{n_burning / len(frame) * 100:.1f}%")
+            c3.metric("Time",          f"T+{current_step+1} hrs")
+
+            # If playing, advance one frame then trigger a rerun
+            if st.session_state.get("playing", False):
+                next_step = st.session_state.anim_step + 1
+                if next_step >= n_steps:
+                    st.session_state.playing   = False
+                    st.session_state.anim_step = 0
+                else:
+                    st.session_state.anim_step = next_step
+                    time.sleep(1.2)
+                    st.rerun()
     with chart_col:
         # Training analytics
         st.subheader("Training Loss Curve")
@@ -313,9 +512,21 @@ def main():
 
         st.subheader("Spread Rate Distribution")
         # Histogram of how fast the fire is predicted to move across all nodes
+        # Replace this:
         st.bar_chart(
             results["spread_rate"].clip(0, 10).value_counts(bins=10).sort_index()
         )
+
+        # With this:
+        spread_hist = pd.cut(
+            results["spread_rate"].clip(0, 10),
+            bins = 10
+        ).value_counts().sort_index()
+        spread_df = pd.DataFrame({
+            "range": [str(i) for i in spread_hist.index],
+            "count": spread_hist.values
+        })
+        st.bar_chart(spread_df.set_index("range"))
 
     # --- Raw Data Inspection ---
     with st.expander("View Raw Node Predictions"):
