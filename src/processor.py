@@ -189,10 +189,12 @@ def build_node_features(grid_df: pd.DataFrame) -> torch.Tensor:
     feature_cols["elevation_norm"]  = minmax(grid_df.get("elevation",  pd.Series(0.0, index=grid_df.index)))
     feature_cols["slope_norm"]      = minmax(grid_df.get("slope",      pd.Series(0.0, index=grid_df.index)))
 
-    # adds both negative and postive nodes
     feature_cols["is_on_fire"] = (
         grid_df.get("bright_ti4", pd.Series(0.0, index=grid_df.index)) > 0
     ).astype(float)
+
+    # With this:
+    feature_cols["is_on_fire"] = pd.Series(1.0, index=grid_df.index)
 
     X = torch.tensor(
         pd.DataFrame(feature_cols).values,
@@ -289,7 +291,7 @@ def build_graph(
     df                       = load_firms_csv(firms_csv)
     grid_df, _, _            = build_grid(df, cell_size_deg=cell_size)
     grid_df                  = attach_elevation(grid_df, dem_path)
-    grid_df                  = add_negative_nodes(grid_df, ratio=2.0)
+    # grid_df                  = add_negative_nodes(grid_df, ratio=2.0)
     x                        = build_node_features(grid_df)
     edge_index, edge_attr    = build_edges(grid_df, wind_u=wind_u, wind_v=wind_v, radius=radius)
 
@@ -318,7 +320,7 @@ def build_graph(
 
     return graph
 
-# AFTER TRAINING, the model was predicting 100% cause there are no non-burning nodes
+# not used
 def add_negative_nodes(grid_df: pd.DataFrame, ratio: float = 2.0) -> pd.DataFrame:
     import random
     fire_rows = grid_df["row_idx"].values
