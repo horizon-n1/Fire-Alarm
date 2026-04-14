@@ -14,7 +14,7 @@ numpy>=1.26.0
 python-dotenv>=1.0.0
 
 # --- Geospatial (optional — only needed for DEM/GeoTIFF elevation) ---
-rasterio>=1.3.9
+# rasterio>=1.3.9
 
 # --- Dashboard ---
 streamlit>=1.32.0

@@ -244,8 +244,9 @@ def main():
 
         with tab2:
             st.caption("Heatmap intensity = GNN fire probability confidence")
-            
-            st_folium(build_heatmap(results), width=700, height=480)
+            heat_map = build_heatmap(results)
+            from streamlit_folium import folium_static
+            folium_static(heat_map, width=700, height=480)
 
     with chart_col:
         st.subheader("Training Loss Curve")
